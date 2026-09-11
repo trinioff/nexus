@@ -86,3 +86,14 @@ export const drag = {
   leanPerRadianPerSecond: 0.06,
   leanMax: 0.14,
 } as const;
+
+/**
+ * Motion gating: how the ambient multiplier eases between 1 and 0 when the scene is
+ * frozen or released, so toggling settles smoothly rather than stopping dead.
+ */
+export const gating = {
+  /** Time constant of the ease, in seconds. Settles in roughly three times this. */
+  settleSeconds: 0.35,
+  /** Distance to the target under which the multiplier snaps exactly onto it. */
+  snapEpsilon: 0.002,
+} as const;

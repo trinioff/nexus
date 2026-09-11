@@ -23,6 +23,8 @@ const eslintConfig = [
       "out/**",
       "build/**",
       "next-env.d.ts",
+      // Static assets, including the MediaPipe wasm loaders copied by scripts/fetch-vision-assets.mjs.
+      "public/**",
     ],
   },
 ];

@@ -6,7 +6,9 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { useWebGLSupport } from "@/hooks/useWebGLSupport";
 import { NexusScene } from "@/scene-graph/NexusScene";
 import { useCarouselStore } from "@/stores/carouselStore";
+import { useHandStore } from "@/stores/handStore";
 import { useSceneStore } from "@/stores/sceneStore";
+import { TrackingIndicator } from "./hud/TrackingIndicator";
 import { WebGLFallback } from "./WebGLFallback";
 
 const NexusCanvas = dynamic(() => import("@/rendering/NexusCanvas"), { ssr: false });
@@ -26,7 +28,7 @@ export function NexusRoot() {
   useEffect(() => {
     if (process.env.NODE_ENV !== "development") return;
     const debugWindow = window as Window & { __nexus?: unknown };
-    debugWindow.__nexus = { useSceneStore, useCarouselStore };
+    debugWindow.__nexus = { useSceneStore, useCarouselStore, useHandStore };
     return () => {
       delete debugWindow.__nexus;
     };
@@ -36,8 +38,11 @@ export function NexusRoot() {
   if (support === "unknown") return null;
 
   return (
-    <NexusCanvas>
-      <NexusScene />
-    </NexusCanvas>
+    <>
+      <NexusCanvas>
+        <NexusScene />
+      </NexusCanvas>
+      <TrackingIndicator />
+    </>
   );
 }

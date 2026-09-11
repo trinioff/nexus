@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# MediaPipe assets copied/downloaded by scripts/fetch-vision-assets.mjs
+/public/vision/

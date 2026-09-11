@@ -4,11 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state of the repository
 
-Phase 1 is partially built: the Next.js scaffold, the layered folder structure, the
-ambient 3D room, and the card carousel with mouse interaction and the six card states.
-Hand tracking, gestures, the Rapier drop-with-physics on pinch release, and the HUD do
-not exist yet; they come with the gesture-engine pass. The two spec documents under
-`docs/specs/` remain the source of truth.
+Phase 1 is mostly built: the Next.js scaffold, the layered folder structure, the
+ambient 3D room, the card carousel with mouse interaction and the six card states, and
+MediaPipe hand tracking with pinch (press / drag / tap), swipe (rotate one slot) and
+open-palm-held-still (freeze ambient motion). Still to come: the Rapier drop on pinch
+release, pull / push to expand / collapse, the circle gesture, the final HUD, audio.
+The two spec documents under `docs/specs/` remain the source of truth.
 
 ## Commands
 
@@ -19,9 +20,17 @@ npm run build        # production build; also runs lint and type checks
 npm run start        # serve the production build
 npm run lint         # ESLint (next/core-web-vitals + next/typescript)
 npm run typecheck    # tsc --noEmit
+npm test             # vitest run (pure logic only: gesture recogniser, mapper)
+npx vitest run src/gesture-engine/hands/GestureRecognizer.test.ts   # one file
+npx vitest run -t "swipe"                                           # tests matching a name
+npm run vision:assets  # re-copy MediaPipe wasm + re-download the hand model into public/vision
 ```
 
-There is no test runner yet. When one is added, record here how to run a single test.
+`postinstall` runs `vision:assets`: the wasm loaders are copied from the installed
+`@mediapipe/tasks-vision` package and the hand landmarker model (about 8 MB) is
+downloaded once from Google's model storage into `public/vision/models/`. That folder
+is git-ignored. On a machine without internet, drop `hand_landmarker.task` there by
+hand; at runtime nothing is ever fetched from a CDN.
 
 To check the scene visually without a GPU, build or run dev, then drive the pre-installed
 headless Chromium with Playwright using the flags `--use-angle=swiftshader
@@ -49,24 +58,36 @@ stating its responsibility; keep those boundaries when adding code.
   backdrop on an inverted sphere, grid floor dissolving into fog), `atmosphere/`
   (seeded particle motes, additive searchlight beams), `lighting/` (light rig and the
   procedural env map for glass reflections), `camera/` (`CameraRig`, the floating
-  drift) and `carousel/` (`Carousel` owns the ring spring, hit testing and the
-  controller; `Card` composes one card's pose every frame).
+  drift, `MotionGate` easing the ambient multiplier), `carousel/` (`Carousel` owns the
+  ring spring, hit testing and the controller; `Card` composes one card's pose every
+  frame) and `hand/` (`HandCursor`, the ring that shows where the hand points).
 - `physics/orbit.ts` pure ring maths: slot angles, orbit positions, nearest slot, the
   shortest rotation that brings a card to the front. Rapier drop-with-physics arrives
   with the gesture engine, as Phase 1 literally requires, and is removed again in Phase
   6 (see known conflicts below). Keep the orbit maths independent of Rapier so that
   removal is clean.
 - `gesture-engine/` input sources producing carousel intents. `CarouselController` is
-  the contract; `pointer/usePointerCarouselInput.ts` is the mouse and touch source. Hand
-  tracking will be a second source driving the same controller.
+  the contract (drag start/move/end, tap, dismiss, rotate); `pointer/` is the mouse and
+  touch source, always active; `hands/` is MediaPipe hand tracking: `HandTracker`
+  (landmarker in video mode, GPU then CPU delegate), `camera.ts` (getUserMedia with
+  every failure named), `GestureRecognizer` (pure landmarks-to-gestures state
+  machine), `HandCarouselMapper` (gestures onto the controller with the mouse's press /
+  drag / tap semantics), `useHandCarouselInput` (React glue, reports to the hand
+  store). Every threshold is a named constant with its unit in `tuning.ts`.
 - `animations/motion.ts` the motion vocabulary: ambient amplitudes and rates under
   intent names (`drifting`, `breathing`), spring presets by intent (`acknowledging`,
   `arriving`, `leaving`, `orbit`, `following`, `tracking`, `parallax`), idle float and
   drag tunables. `animations/cardMotion.ts` maps the six card states to spring targets.
   No inline magic numbers in scene code.
-- `stores/sceneStore.ts` Zustand: `motion` (0..1 ambient multiplier) and `quality`.
-  `stores/carouselStore.ts`: hovered, selected, expanded, focused, dragged ids and
-  `selectCardState`, which resolves a card's single state by priority.
+- `stores/sceneStore.ts` Zustand: `motion` (0..1 ambient multiplier, eased toward
+  `motionTarget`, which is 0 while `frozen`), `motionBase` (reduced-motion setting) and
+  `quality`. `stores/carouselStore.ts`: hovered, selected, expanded, focused, dragged
+  ids and `selectCardState`, which resolves a card's single state by priority.
+  `stores/handStore.ts`: tracking status and message, the hand snapshot (cursor,
+  fingertips, openness, pinch), the last gesture, and `retry()`.
+- `components/hud/TrackingIndicator.tsx` the bottom-right tracking readout: the seed
+  of the final HUD's gesture block, not the HUD. It states the mouse fallback plainly
+  whenever hands are not driving the scene.
 - `utils/` pure helpers: math, seeded PRNG, shared GLSL noise chunk.
 - `hooks/` browser-API hooks (WebGL support, reduced motion).
 
@@ -91,6 +112,24 @@ Conventions already in place:
 - Camera drift is `base + motion * f(t)` with no easing, so `motion = 0` means the camera
   sits exactly on its base pose (Phase 6 requires exactly zero drift under zero input).
   Beam sweep accumulates `delta * rate * motion` so it holds still without snapping.
+  The easing lives in the store (`tickMotion`, driven by `MotionGate` each frame) and
+  snaps exactly onto the target once within `gating.snapEpsilon`, so a freeze settles
+  smoothly and still ends at exactly zero.
+- Hand coordinates: MediaPipe landmarks are normalised to the video frame, x right
+  and y down. The recogniser mirrors x so "right" means right on screen, and maps the
+  palm to NDC with `cursor.gain` around the centre. MediaPipe's handedness labels
+  assume a mirrored image, so `HandTracker` swaps them. Never put MediaPipe calls in
+  `scene-graph` or `components`: they read the hand store.
+- Hand gestures reuse the mouse semantics through the same controller: pinch is a
+  press on the card under the cursor, travel past `pinch.dragThreshold` turns it into
+  a ring drag (release velocity projected then snapped), release without travel is a
+  tap. A swipe calls `rotate(±1)`. Pinch is confirmed over `pinch.confirmFrames` with
+  hysteresis between `closeRatio` and `openRatio`; swipe and palm-still measure speed
+  over a trailing window. The recogniser and the mapper are pure and unit-tested with
+  synthetic hands (`hands/testHand.ts`); keep them free of DOM and stores.
+- Hand tracking never blocks the mouse. Every failure (denied, no camera, insecure
+  context, tracker load error) lands in `handStore.status` with a message the
+  indicator shows, plus a retry.
 - Every object owns its geometry and material in `useMemo` and disposes them on unmount.
 - Layout of particles and beams uses the seeded PRNG in `utils/random.ts`; do not use
   `Math.random` in scene code, the scene must be identical on every load.
@@ -118,8 +157,14 @@ Conventions already in place:
   drawn over the pane and read as seen through it. Keep the glass colour near neutral;
   the module accent belongs to the frame shader, not the pane.
 - In development, `window.__nexus` exposes the Zustand stores (`useSceneStore`,
-  `useCarouselStore`) so a browser script can force a tier or a card state. It is not
-  set in production builds.
+  `useCarouselStore`, `useHandStore`) so a browser script can force a tier or a card
+  state, or read the tracking status. It is not set in production builds.
+- To check hand tracking headlessly: launch Chromium with
+  `--use-fake-device-for-media-stream --use-fake-ui-for-media-stream` (a synthetic
+  video, no hands) and confirm `useHandStore` reaches `active` with only local
+  `/vision/` requests; override `navigator.mediaDevices.getUserMedia` to reject a
+  `NotAllowedError` to exercise the denied path. Real gestures can only be tuned on a
+  machine with a webcam.
 
 ## The two spec documents and how they relate
 

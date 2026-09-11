@@ -13,4 +13,6 @@ export interface CarouselController {
   tap: (cardId: string | null) => void;
   /** Escape: collapse an expanded card, else clear the selection. */
   dismiss: () => void;
+  /** Rotate the ring by whole slots; positive moves the cards to the right. */
+  rotate: (steps: number) => void;
 }

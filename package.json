@@ -7,9 +7,14 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "vision:assets": "node scripts/fetch-vision-assets.mjs",
+    "postinstall": "node scripts/fetch-vision-assets.mjs"
   },
   "dependencies": {
+    "@mediapipe/tasks-vision": "^1.0.1",
     "@react-spring/three": "^10.1.2",
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
@@ -24,13 +29,14 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22.20.2",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/three": "^0.185.4",
     "eslint": "^9",
     "eslint-config-next": "15.5.25",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^5.0.0"
   }
 }

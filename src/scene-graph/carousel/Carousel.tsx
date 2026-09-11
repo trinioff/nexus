@@ -6,7 +6,9 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { type Mesh, PlaneGeometry, Raycaster, Vector2 } from "three";
 import { drag, springs } from "@/animations/motion";
 import type { CarouselController } from "@/gesture-engine/CarouselController";
+import { useHandCarouselInput } from "@/gesture-engine/hands/useHandCarouselInput";
 import { usePointerCarouselInput } from "@/gesture-engine/pointer/usePointerCarouselInput";
+import { pinch } from "@/gesture-engine/tuning";
 import { MODULES } from "@/modules/registry";
 import { nearestSlotIndex, ringAngleToFront, snapAngle } from "@/physics/orbit";
 import { createCardSlabGeometry } from "@/rendering/geometry/cardSlab";
@@ -57,23 +59,35 @@ export function Carousel() {
   }, []);
 
   const raycaster = useMemo(() => new Raycaster(), []);
-  const hitTest = useCallback(
-    (clientX: number, clientY: number) => {
-      const rect = gl.domElement.getBoundingClientRect();
-      const ndc = new Vector2(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
-      raycaster.setFromCamera(ndc, camera);
+  const ndc = useMemo(() => new Vector2(), []);
+  const hitTestNdc = useCallback(
+    (x: number, y: number) => {
+      raycaster.setFromCamera(ndc.set(x, y), camera);
       const hits = raycaster.intersectObjects([...meshes.current.values()], false);
       return hits.length ? (hits[0].object.userData.cardId as string) : null;
     },
-    [camera, gl, raycaster],
+    [camera, ndc, raycaster],
+  );
+  const hitTest = useCallback(
+    (clientX: number, clientY: number) => {
+      const rect = gl.domElement.getBoundingClientRect();
+      return hitTestNdc(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    },
+    [gl, hitTestNdc],
   );
 
   const dragAngle = useRef(0);
+  /** Where the ring spring is heading (or sits): the base for slot-relative rotations. */
+  const ringTarget = useRef(0);
   const controller = useMemo<CarouselController>(() => {
     const dismiss = () => {
       const s = useCarouselStore.getState();
       if (s.expandedId) s.collapse();
       else if (s.selectedId) s.deselect();
+    };
+    const settle = (target: number, config: typeof springs.orbit | typeof springs.arriving) => {
+      ringTarget.current = target;
+      ringApi.start({ angle: target, config });
     };
     return {
       dragStart(cardId) {
@@ -83,12 +97,12 @@ export function Carousel() {
       },
       dragMove(delta) {
         dragAngle.current += delta;
+        ringTarget.current = dragAngle.current;
         ringApi.set({ angle: dragAngle.current });
       },
       dragEnd(velocity) {
         useCarouselStore.getState().endDrag();
-        const target = snapAngle(dragAngle.current + velocity * drag.flingProjection, count);
-        ringApi.start({ angle: target, config: springs.orbit });
+        settle(snapAngle(dragAngle.current + velocity * drag.flingProjection, count), springs.orbit);
       },
       tap(cardId) {
         if (cardId === null) {
@@ -103,14 +117,20 @@ export function Carousel() {
         } else {
           s.select(cardId);
           const index = MODULES.findIndex((m) => m.id === cardId);
-          ringApi.start({ angle: ringAngleToFront(index, count, ring.angle.get()), config: springs.arriving });
+          settle(ringAngleToFront(index, count, ring.angle.get()), springs.arriving);
         }
       },
       dismiss,
+      rotate(steps) {
+        const s = useCarouselStore.getState();
+        if (s.selectedId || s.expandedId) s.deselect();
+        settle(snapAngle(ringTarget.current, count) + steps * (TAU / count), springs.orbit);
+      },
     };
   }, [count, ring, ringApi]);
 
   usePointerCarouselInput(controller, hitTest, (drag.slotsPerViewportWidth * TAU) / count / width);
+  useHandCarouselInput(controller, hitTestNdc, (pinch.slotsPerScreenWidth * (TAU / count)) / 2);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
