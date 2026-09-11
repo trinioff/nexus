@@ -6,10 +6,11 @@ import { useHandStore } from "@/stores/handStore";
 import { useSceneStore } from "@/stores/sceneStore";
 import type { CarouselController } from "../CarouselController";
 import { pinch, tracking } from "../tuning";
+import { resolveTrackingOptions } from "./overrides";
 import { CameraError, openCamera, stopStream } from "./camera";
-import { GestureRecognizer, type HandFrame } from "./GestureRecognizer";
+import { GestureRecognizer } from "./GestureRecognizer";
 import { HandCarouselMapper } from "./HandCarouselMapper";
-import { HandTracker } from "./HandTracker";
+import { createHandTracker, type HandTracker } from "./HandTracker";
 
 type VideoWithFrameCallback = HTMLVideoElement & {
   requestVideoFrameCallback?: (callback: (now: number) => void) => number;
@@ -17,8 +18,8 @@ type VideoWithFrameCallback = HTMLVideoElement & {
 };
 
 /**
- * Hand-tracking input source for the carousel. Opens the camera, loads the tracker
- * on demand, and runs detect → recognise → map every video frame. Status and the
+ * Hand-tracking input source for the carousel. Opens the camera, starts a tracker
+ * (worker when possible), and runs recognise → map on every result. Status and the
  * hand snapshot go to the hand store; gestures go to the controller. Any failure
  * (permission denied, no camera, tracker unavailable) is reported through the store
  * and leaves the mouse fully in charge. Re-runs when the store's retry token changes.
@@ -55,50 +56,58 @@ export function useHandCarouselInput(
       setHovered: (id) => useCarouselStore.getState().setHovered(id),
       setFrozen: (frozen) => useSceneStore.getState().setFrozen(frozen),
       radiansPerNdc: latest.current.radiansPerNdc,
-      dragThreshold: pinch.dragThreshold,
+      tapMaxTravel: pinch.tapMaxTravel,
     });
 
     let frames = 0;
     let fpsSince = 0;
     let fps = 0;
+    let lastResultAt = 0;
+    let watchdog = 0;
 
-    const stop = () => {
+    const stop = (keepStream = false) => {
+      clearTimeout(watchdog);
       if (video) {
         if (usingFrameCallback) video.cancelVideoFrameCallback?.(frameHandle);
         else cancelAnimationFrame(frameHandle);
         video.srcObject = null;
+        video = null;
       }
       tracker?.close();
       tracker = null;
-      stopStream(stream);
-      stream = null;
+      if (!keepStream) {
+        stopStream(stream);
+        stream = null;
+      }
+    };
+
+    const onFrame: Parameters<typeof createHandTracker>[1]["onFrame"] = (frame, t) => {
+      if (cancelled) return;
+      lastResultAt = performance.now();
+      const { snapshot, events } = recognizer.update(frame, t);
+      mapper.apply(snapshot, events);
+
+      frames += 1;
+      if (fpsSince === 0) fpsSince = t;
+      const elapsed = t - fpsSince;
+      if (elapsed >= 1000) {
+        fps = Math.round((frames * 1000) / elapsed);
+        frames = 0;
+        fpsSince = t;
+      }
+      handStore.publish(snapshot, events, fps);
+    };
+
+    const onError = (message: string) => {
+      if (cancelled) return;
+      handStore.setStatus("error", `Hand tracking failed: ${message}`);
+      mapper.dispose();
+      stop();
     };
 
     const tick = (now: number) => {
       if (cancelled || !video || !tracker) return;
-      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        let frame: HandFrame | null = null;
-        try {
-          frame = tracker.detect(video, now);
-        } catch (error) {
-          handStore.setStatus("error", `Hand tracking failed: ${error instanceof Error ? error.message : String(error)}`);
-          mapper.dispose();
-          stop();
-          return;
-        }
-        const { snapshot, events } = recognizer.update(frame, now);
-        mapper.apply(snapshot, events);
-
-        frames += 1;
-        if (fpsSince === 0) fpsSince = now;
-        const elapsed = now - fpsSince;
-        if (elapsed >= 1000) {
-          fps = Math.round((frames * 1000) / elapsed);
-          frames = 0;
-          fpsSince = now;
-        }
-        handStore.publish(snapshot, events, fps);
-      }
+      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) tracker.submit(video, now);
       schedule();
     };
 
@@ -109,6 +118,74 @@ export function useHandCarouselInput(
       } else {
         frameHandle = requestAnimationFrame(tick);
       }
+    };
+
+    const callbacks = {
+      onFrame,
+      onError,
+      onProgress: (stage: string) => {
+        if (cancelled) return;
+        handStore.setStage(stage);
+        if (useHandStore.getState().status === "starting") handStore.setStatus("starting", stage);
+      },
+    };
+
+    /** Starts the tracker and its frame loop; `options` decides worker or main thread. */
+    const start = async (options: ReturnType<typeof resolveTrackingOptions>): Promise<boolean> => {
+      if (!stream) return false;
+      try {
+        tracker = await createHandTracker(stream, callbacks, options);
+      } catch (error) {
+        if (!cancelled) {
+          handStore.setStatus(
+            "unavailable",
+            `Hand tracking could not start (${error instanceof Error ? error.message : String(error)}). Check that public/vision holds the wasm files and the model.`,
+          );
+        }
+        stop();
+        return false;
+      }
+      if (cancelled) {
+        stop();
+        return false;
+      }
+
+      handStore.setStatus("active", null, { mode: tracker.mode, delegate: tracker.delegate, source: tracker.source });
+      lastResultAt = performance.now();
+
+      if (!tracker.selfDriven) {
+        video = document.createElement("video") as VideoWithFrameCallback;
+        video.muted = true;
+        video.playsInline = true;
+        video.srcObject = stream;
+        try {
+          await video.play();
+        } catch {
+          // A muted stream may still deliver frames; submission waits on readyState.
+        }
+        if (cancelled) {
+          stop();
+          return false;
+        }
+        usingFrameCallback = typeof video.requestVideoFrameCallback === "function";
+        schedule();
+      }
+
+      // A worker that went quiet (a blocked thread, a stream that never delivers) is
+      // replaced by main-thread detection rather than left as a silent, active tracker.
+      if (tracker.mode === "worker") {
+        const worker = tracker;
+        watchdog = window.setTimeout(() => {
+          if (cancelled || tracker !== worker) return;
+          if (performance.now() - lastResultAt < options.firstResultTimeoutMs) return;
+          console.warn("[nexus] hand-tracking worker produced no result; detecting on the main thread instead.");
+          handStore.setStage("worker silent, switching to main thread");
+          mapper.dispose();
+          stop(true);
+          void start({ ...options, preferWorker: false });
+        }, options.firstResultTimeoutMs + 250);
+      }
+      return true;
     };
 
     (async () => {
@@ -122,33 +199,7 @@ export function useHandCarouselInput(
         return;
       }
       if (cancelled) return stop();
-
-      video = document.createElement("video") as VideoWithFrameCallback;
-      video.muted = true;
-      video.playsInline = true;
-      video.srcObject = stream;
-      try {
-        await video.play();
-      } catch {
-        // A muted stream may still deliver frames; detection waits on readyState.
-      }
-
-      try {
-        tracker = await HandTracker.create();
-      } catch (error) {
-        if (!cancelled) {
-          handStore.setStatus(
-            "unavailable",
-            `Hand tracking could not start (${error instanceof Error ? error.message : String(error)}). Check that public/vision holds the wasm files and the model.`,
-          );
-        }
-        return stop();
-      }
-      if (cancelled) return stop();
-
-      handStore.setStatus("active", null);
-      usingFrameCallback = typeof video.requestVideoFrameCallback === "function";
-      schedule();
+      await start(resolveTrackingOptions());
     })();
 
     return () => {

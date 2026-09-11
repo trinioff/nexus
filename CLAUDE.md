@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Phase 1 is mostly built: the Next.js scaffold, the layered folder structure, the
 ambient 3D room, the card carousel with mouse interaction and the six card states, and
-MediaPipe hand tracking with pinch (press / drag / tap), swipe (rotate one slot) and
-open-palm-held-still (freeze ambient motion). Still to come: the Rapier drop on pinch
+MediaPipe hand tracking with an open-hand sweep that carries the ring, pinch to
+select, and open-palm-held-still to freeze ambient motion. Still to come: the Rapier drop on pinch
 release, pull / push to expand / collapse, the circle gesture, the final HUD, audio.
 The two spec documents under `docs/specs/` remain the source of truth.
 
@@ -68,12 +68,14 @@ stating its responsibility; keep those boundaries when adding code.
   removal is clean.
 - `gesture-engine/` input sources producing carousel intents. `CarouselController` is
   the contract (drag start/move/end, tap, dismiss, rotate); `pointer/` is the mouse and
-  touch source, always active; `hands/` is MediaPipe hand tracking: `HandTracker`
-  (landmarker in video mode, GPU then CPU delegate), `camera.ts` (getUserMedia with
-  every failure named), `GestureRecognizer` (pure landmarks-to-gestures state
-  machine), `HandCarouselMapper` (gestures onto the controller with the mouse's press /
-  drag / tap semantics), `useHandCarouselInput` (React glue, reports to the hand
-  store). Every threshold is a named constant with its unit in `tuning.ts`.
+  touch source, always active; `hands/` is MediaPipe hand tracking: `hand.worker.ts`
+  (the landmarker off the main thread, fed from the camera stream on Chromium via
+  MediaStreamTrackProcessor or by posted bitmaps elsewhere), `HandTracker` (worker
+  first, main-thread fallback, GPU then CPU delegate), `camera.ts` (getUserMedia with
+  every failure named), `OneEuroFilter` and `GestureRecognizer` (pure landmarks-to-
+  gestures state machine), `HandCarouselMapper` (gestures onto the controller),
+  `useHandCarouselInput` (React glue, reports to the hand store). Every threshold is a
+  named constant with its unit in `tuning.ts`.
 - `animations/motion.ts` the motion vocabulary: ambient amplitudes and rates under
   intent names (`drifting`, `breathing`), spring presets by intent (`acknowledging`,
   `arriving`, `leaving`, `orbit`, `following`, `tracking`, `parallax`), idle float and
@@ -120,13 +122,22 @@ Conventions already in place:
   palm to NDC with `cursor.gain` around the centre. MediaPipe's handedness labels
   assume a mirrored image, so `HandTracker` swaps them. Never put MediaPipe calls in
   `scene-graph` or `components`: they read the hand store.
-- Hand gestures reuse the mouse semantics through the same controller: pinch is a
-  press on the card under the cursor, travel past `pinch.dragThreshold` turns it into
-  a ring drag (release velocity projected then snapped), release without travel is a
-  tap. A swipe calls `rotate(±1)`. Pinch is confirmed over `pinch.confirmFrames` with
-  hysteresis between `closeRatio` and `openRatio`; swipe and palm-still measure speed
-  over a trailing window. The recogniser and the mapper are pure and unit-tested with
-  synthetic hands (`hands/testHand.ts`); keep them free of DOM and stores.
+- Hand gestures through the same controller as the mouse: an open hand moving
+  sideways past `sweep.engageTravel` is the ring drag (`dragStart(null)`, `dragMove`
+  per frame, `dragEnd` with the fling velocity once the hand stops for
+  `sweep.releaseMs`, closes, pinches or is lost). A pinch is a tap on the card under
+  the cursor when it closed, unless the hand drifted past `pinch.tapMaxTravel` before
+  releasing; pinch-and-move does nothing until the grab pass. Pinch is confirmed over
+  `pinch.confirmFrames` with hysteresis between `closeRatio` and `openRatio`; sweep
+  release and palm-still measure palm speed over a trailing window. The recogniser and
+  the mapper are pure and unit-tested with synthetic hands (`hands/testHand.ts`); keep
+  them free of DOM and stores.
+- Smoothness has three layers, each with its own knob: the cursor is One Euro filtered
+  in the recogniser (`cursor.filter`, per NDC axis), the scene's `HandCursor` closes on
+  each new position at render rate (`handCursor.followSeconds`), and the ring follows
+  sweeps through the cards' `following` spring. Inference runs in a classic Web Worker
+  (MediaPipe needs `importScripts`, which module workers lack) so detection never
+  stalls a rendered frame; the indicator shows the rate, the mode and the delegate.
 - Hand tracking never blocks the mouse. Every failure (denied, no camera, insecure
   context, tracker load error) lands in `handStore.status` with a message the
   indicator shows, plus a retry.
@@ -164,7 +175,23 @@ Conventions already in place:
   video, no hands) and confirm `useHandStore` reaches `active` with only local
   `/vision/` requests; override `navigator.mediaDevices.getUserMedia` to reject a
   `NotAllowedError` to exercise the denied path. Real gestures can only be tuned on a
-  machine with a webcam.
+  machine with a webcam. In this sandbox the worker takes about 40 s to become ready
+  (SwiftShader rendering starves it during the wasm compile), which trips the 30 s
+  ready timeout and falls back to the main thread; that is the sandbox, not a bug. To
+  observe the worker path here, raise the timeout temporarily and use `?hands=cpu`.
+- `?hands=cpu`, `?hands=gpu` and `?hands=main` on the page URL force where detection
+  runs (worker with CPU or GPU delegate, or the main thread) for comparing on a real
+  machine, and `&frames=bitmap` makes the page post bitmaps instead of handing the
+  worker the camera stream. The indicator's second line shows the rate, mode, delegate
+  and frame source (STREAM = camera frames pulled by the worker, BITMAP = posted from
+  the page, VIDEO = main thread). Two guards keep a bad worker from ever leaving the
+  user without tracking: if it does not report ready within
+  `tracking.workerReadyTimeoutMs` it is terminated and detection starts on the main
+  thread; if, once active, it produces no result within
+  `tracking.firstResultTimeoutMs`, the hook's watchdog does the same. In this sandbox
+  the worker's first detection blocks (a headless SwiftShader limitation), so the
+  watchdog path is what runs here and is verified end to end; `handStore.stage` holds
+  the worker's latest progress message for diagnosis.
 
 ## The two spec documents and how they relate
 

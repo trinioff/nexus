@@ -21,7 +21,7 @@ function harness(cardUnderCursor: string | null = "calendar") {
     setHovered: (id) => hovered.push(id),
     setFrozen: (f) => frozen.push(f),
     radiansPerNdc: 1,
-    dragThreshold: 0.03,
+    tapMaxTravel: 0.08,
   });
   const present: HandSnapshot = { ...EMPTY_HAND, present: true };
   const run = (events: GestureEvent[], snapshot = present) => mapper.apply(snapshot, events);
@@ -29,22 +29,21 @@ function harness(cardUnderCursor: string | null = "calendar") {
 }
 
 describe("HandCarouselMapper", () => {
-  it("treats a pinch released without travel as a tap on the card under the cursor", () => {
+  it("treats a pinch released near where it closed as a tap on the card under the cursor", () => {
     const h = harness("calendar");
     h.run([{ type: "pinchStart", cursor: { x: 0, y: 0 } }]);
-    h.run([{ type: "pinchMove", cursor: { x: 0.01, y: 0 }, delta: { x: 0.01, y: 0 } }]);
-    h.run([{ type: "pinchEnd", cursor: { x: 0.01, y: 0 }, velocity: { x: 0, y: 0 } }]);
+    h.run([{ type: "pinchMove", cursor: { x: 0.03, y: 0.02 }, delta: { x: 0.03, y: 0.02 } }]);
+    h.run([{ type: "pinchEnd", cursor: { x: 0.03, y: 0.02 }, velocity: { x: 0, y: 0 } }]);
     expect(h.calls).toEqual(["tap:calendar"]);
   });
 
-  it("turns a pinch that travels past the threshold into a ring drag with the card pressed", () => {
+  it("does nothing when a pinch drifted too far before releasing", () => {
     const h = harness("news");
     h.run([{ type: "pinchStart", cursor: { x: 0, y: 0 } }]);
-    h.run([{ type: "pinchMove", cursor: { x: 0.02, y: 0 }, delta: { x: 0.02, y: 0 } }]);
+    h.run([{ type: "pinchMove", cursor: { x: 0.2, y: 0 }, delta: { x: 0.2, y: 0 } }]);
+    h.run([{ type: "pinchMove", cursor: { x: 0.02, y: 0 }, delta: { x: -0.18, y: 0 } }]);
+    h.run([{ type: "pinchEnd", cursor: { x: 0.02, y: 0 }, velocity: { x: 0, y: 0 } }]);
     expect(h.calls).toEqual([]);
-    h.run([{ type: "pinchMove", cursor: { x: 0.05, y: 0 }, delta: { x: 0.03, y: 0 } }]);
-    h.run([{ type: "pinchEnd", cursor: { x: 0.05, y: 0 }, velocity: { x: 0.5, y: 0 } }]);
-    expect(h.calls).toEqual(["dragStart:news", "dragMove:0.030", "dragEnd:0.500"]);
   });
 
   it("taps empty space when nothing is under the cursor, which dismisses", () => {
@@ -54,11 +53,17 @@ describe("HandCarouselMapper", () => {
     expect(h.calls).toEqual(["tap:null"]);
   });
 
-  it("rotates one slot in the swipe direction", () => {
-    const h = harness();
-    h.run([{ type: "swipe", direction: "right", speed: 2 }]);
-    h.run([{ type: "swipe", direction: "left", speed: 2 }]);
-    expect(h.calls).toEqual(["rotate:1", "rotate:-1"]);
+  it("drives the ring drag from an open-hand sweep and flings on release", () => {
+    const h = harness("music");
+    h.run([{ type: "sweepStart", cursor: { x: 0, y: 0 } }]);
+    h.run([{ type: "sweepMove", cursor: { x: 0.05, y: 0 }, delta: { x: 0.05, y: 0 } }]);
+    h.run([{ type: "sweepMove", cursor: { x: 0.12, y: 0 }, delta: { x: 0.07, y: 0 } }]);
+    // No hover is applied while the ring is being carried.
+    expect(h.hovered).toEqual([]);
+    h.run([{ type: "sweepEnd", cursor: { x: 0.12, y: 0 }, velocity: { x: 1.5, y: 0 } }]);
+    expect(h.calls).toEqual(["dragStart:null", "dragMove:0.050", "dragMove:0.070", "dragEnd:1.500"]);
+    // Once released, the card under the cursor is hovered again.
+    expect(h.hovered).toEqual(["music"]);
   });
 
   it("freezes and releases ambient motion with the still palm", () => {
@@ -76,13 +81,13 @@ describe("HandCarouselMapper", () => {
     expect(h.hovered).toEqual(["music", null]);
   });
 
-  it("releases a drag and a freeze on dispose", () => {
+  it("releases a sweep and a freeze on dispose", () => {
     const h = harness("ai");
-    h.run([{ type: "pinchStart", cursor: { x: 0, y: 0 } }]);
-    h.run([{ type: "pinchMove", cursor: { x: 0.1, y: 0 }, delta: { x: 0.1, y: 0 } }]);
+    h.run([{ type: "sweepStart", cursor: { x: 0, y: 0 } }]);
+    h.run([{ type: "sweepMove", cursor: { x: 0.1, y: 0 }, delta: { x: 0.1, y: 0 } }]);
     h.run([{ type: "stillStart" }]);
     h.mapper.dispose();
-    expect(h.calls).toEqual(["dragStart:ai", "dragMove:0.100", "dragEnd:0.000"]);
+    expect(h.calls).toEqual(["dragStart:null", "dragMove:0.100", "dragEnd:0.000"]);
     expect(h.frozen).toEqual([true, false]);
   });
 });

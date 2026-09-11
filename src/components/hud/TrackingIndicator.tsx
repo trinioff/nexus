@@ -4,8 +4,7 @@ import { useEffect, useState } from "react";
 import { type GestureLabel, useHandStore } from "@/stores/handStore";
 
 const GESTURE_TEXT: Record<GestureLabel, string> = {
-  "swipe-left": "SWIPE ←",
-  "swipe-right": "SWIPE →",
+  sweep: "SWEEP",
   pinch: "PINCH",
   release: "RELEASE",
   freeze: "FREEZE",
@@ -25,6 +24,8 @@ export function TrackingIndicator() {
   const message = useHandStore((s) => s.message);
   const present = useHandStore((s) => s.hand.present);
   const lastGesture = useHandStore((s) => s.lastGesture);
+  const tracker = useHandStore((s) => s.tracker);
+  const fps = useHandStore((s) => s.fps);
   const retry = useHandStore((s) => s.retry);
 
   const [gestureText, setGestureText] = useState<string | null>(null);
@@ -56,7 +57,7 @@ export function TrackingIndicator() {
   const hint =
     status === "denied"
       ? "Allow the camera in the browser's site settings, then retry."
-      : warning
+      : warning || status === "starting"
         ? message
         : null;
 
@@ -74,6 +75,12 @@ export function TrackingIndicator() {
           }`}
         />
       </div>
+      {status === "active" && tracker && (
+        <div className="text-[10px] text-nexus-ice/40">
+          {fps > 0 ? `${fps} FPS · ` : ""}
+          {tracker.mode === "worker" ? "WORKER" : "MAIN THREAD"} · {tracker.delegate} · {tracker.source.toUpperCase()}
+        </div>
+      )}
       {hint && <p className="max-w-[26ch] text-[10px] leading-relaxed tracking-normal text-nexus-ice/50">{hint}</p>}
       {warning && (
         <button

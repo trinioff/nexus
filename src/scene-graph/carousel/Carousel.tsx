@@ -8,7 +8,7 @@ import { drag, springs } from "@/animations/motion";
 import type { CarouselController } from "@/gesture-engine/CarouselController";
 import { useHandCarouselInput } from "@/gesture-engine/hands/useHandCarouselInput";
 import { usePointerCarouselInput } from "@/gesture-engine/pointer/usePointerCarouselInput";
-import { pinch } from "@/gesture-engine/tuning";
+import { sweep } from "@/gesture-engine/tuning";
 import { MODULES } from "@/modules/registry";
 import { nearestSlotIndex, ringAngleToFront, snapAngle } from "@/physics/orbit";
 import { createCardSlabGeometry } from "@/rendering/geometry/cardSlab";
@@ -130,7 +130,7 @@ export function Carousel() {
   }, [count, ring, ringApi]);
 
   usePointerCarouselInput(controller, hitTest, (drag.slotsPerViewportWidth * TAU) / count / width);
-  useHandCarouselInput(controller, hitTestNdc, (pinch.slotsPerScreenWidth * (TAU / count)) / 2);
+  useHandCarouselInput(controller, hitTestNdc, (sweep.slotsPerScreenWidth * (TAU / count)) / 2);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

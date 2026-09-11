@@ -4,9 +4,10 @@
  * detection logic. Units are stated on every value.
  *
  * Coordinates: MediaPipe landmarks are normalised to the video frame, x to the right
- * and y down, in [0, 1]. Speeds below are in frame widths per second. "Hand units"
- * are distances divided by the hand's own scale (wrist to middle-finger knuckle), which
- * makes a threshold independent of how far the hand is from the camera.
+ * and y down, in [0, 1]. Palm speeds are in frame widths per second. The cursor is in
+ * NDC (x right, y up, screen width is 2). "Hand units" are distances divided by the
+ * hand's own scale (wrist to middle-finger knuckle), which makes a threshold
+ * independent of how far the hand is from the camera.
  */
 
 export const tracking = {
@@ -21,15 +22,33 @@ export const tracking = {
   video: { width: 640, height: 480, frameRate: 30 },
   /** Consecutive frames without a hand before it is reported gone. */
   lostFrames: 6,
+  /** Run inference in a Web Worker when the browser allows it, so detection never stalls rendering. */
+  preferWorker: true,
+  /**
+   * How long building the GPU landmarker may take, in milliseconds, before the CPU one
+   * is built instead. Guards against a WebGL context that never comes up in a worker.
+   */
+  gpuInitTimeoutMs: 10000,
+  /** How long the worker may take to load the runtime and the model before the main thread takes over, in ms. */
+  workerReadyTimeoutMs: 30000,
+  /** Once active, how long the worker may go without producing a result before the main thread takes over, in ms. */
+  firstResultTimeoutMs: 8000,
 } as const;
+
+export type TrackingOptions = typeof tracking;
 
 export const cursor = {
   /** Mirror the camera horizontally so the cursor follows the hand like a mirror would. */
   mirror: true,
   /** Amplifies palm movement around the frame centre so a comfortable hand range covers the screen. */
   gain: 1.5,
-  /** Exponential smoothing time constant of the on-screen cursor, in seconds. */
-  smoothingSeconds: 0.06,
+  /**
+   * One Euro filter on the cursor, applied per axis in NDC. minCutoff (Hz) is how much
+   * slow jitter is removed: lower is steadier at rest but laggier. beta (per NDC unit
+   * per second of cursor speed) raises the cutoff as the hand speeds up, so fast moves
+   * come through with little lag. derivativeCutoff (Hz) smooths the speed estimate.
+   */
+  filter: { minCutoff: 1.2, beta: 2.5, derivativeCutoff: 1.0 },
 } as const;
 
 export const fingers = {
@@ -48,23 +67,20 @@ export const pinch = {
   openRatio: 0.62,
   /** Consecutive frames the distance must satisfy the threshold before the state flips. */
   confirmFrames: 2,
-  /** Cursor travel, in NDC units (screen width is 2), before a pinch becomes a drag rather than a tap. */
-  dragThreshold: 0.03,
-  /** Carousel slots moved by a pinch-drag across the full screen width. */
-  slotsPerScreenWidth: 4,
+  /** Cursor travel, in NDC units, a pinch may drift before releasing it no longer counts as a tap. */
+  tapMaxTravel: 0.08,
 } as const;
 
-export const swipe = {
-  /** Horizontal palm speed, in frame widths per second, that qualifies as a swipe. */
-  minSpeed: 1.6,
-  /** Horizontal palm travel over the window, in frame widths, that qualifies. */
-  minDistance: 0.12,
-  /** Window over which speed and travel are measured, in milliseconds. */
-  windowMs: 180,
-  /** Vertical travel must stay below this fraction of the horizontal travel. */
-  maxVerticalRatio: 0.6,
-  /** Minimum time between two swipes, in milliseconds. */
-  cooldownMs: 650,
+/** An open hand moving sideways carries the ring with it; stopping or closing releases it. */
+export const sweep = {
+  /** Cursor travel, in NDC units, an open hand must cover before the ring starts following it. */
+  engageTravel: 0.05,
+  /** Palm speed, in frame widths per second, under which a sweep counts as stopped. */
+  releaseSpeed: 0.12,
+  /** How long the hand must stay stopped before the ring is released to snap, in milliseconds. */
+  releaseMs: 220,
+  /** Carousel slots moved by a sweep across the full screen width. */
+  slotsPerScreenWidth: 3,
 } as const;
 
 export const palmStill = {

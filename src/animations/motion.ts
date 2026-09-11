@@ -97,3 +97,9 @@ export const gating = {
   /** Distance to the target under which the multiplier snaps exactly onto it. */
   snapEpsilon: 0.002,
 } as const;
+
+/** The hand cursor in the scene: how quickly it closes on each new tracked position. */
+export const handCursor = {
+  /** Time constant, in seconds, of the render-rate follow toward the latest tracked cursor. */
+  followSeconds: 0.04,
+} as const;
