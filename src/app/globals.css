@@ -1,0 +1,32 @@
+@import "tailwindcss";
+
+/*
+ * NEXUS design tokens. Dark void, blue/white holographic light.
+ * `nexus-warning` (orange) is reserved for warning states only.
+ */
+@theme {
+  --color-nexus-void: #03060d;
+  --color-nexus-fog: #060c1c;
+  --color-nexus-haze: #0e2050;
+  --color-nexus-blue: #3d7bff;
+  --color-nexus-ice: #9ccaff;
+  --color-nexus-white: #e6f1ff;
+  --color-nexus-warning: #ff8a3d;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-nexus-void);
+  color: var(--color-nexus-white);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
