@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Phase 1 is partially built: the Next.js scaffold, the layered folder structure, the
 ambient 3D room, and the card carousel with mouse interaction and the six card states.
-Hand tracking, gestures, the HUD and any rigid-body physics do not exist yet. The two
-spec documents under `docs/specs/` remain the source of truth.
+Hand tracking, gestures, the Rapier drop-with-physics on pinch release, and the HUD do
+not exist yet; they come with the gesture-engine pass. The two spec documents under
+`docs/specs/` remain the source of truth.
 
 ## Commands
 
@@ -51,7 +52,10 @@ stating its responsibility; keep those boundaries when adding code.
   drift) and `carousel/` (`Carousel` owns the ring spring, hit testing and the
   controller; `Card` composes one card's pose every frame).
 - `physics/orbit.ts` pure ring maths: slot angles, orbit positions, nearest slot, the
-  shortest rotation that brings a card to the front. No rigid bodies, ever.
+  shortest rotation that brings a card to the front. Rapier drop-with-physics arrives
+  with the gesture engine, as Phase 1 literally requires, and is removed again in Phase
+  6 (see known conflicts below). Keep the orbit maths independent of Rapier so that
+  removal is clean.
 - `gesture-engine/` input sources producing carousel intents. `CarouselController` is
   the contract; `pointer/usePointerCarouselInput.ts` is the mouse and touch source. Hand
   tracking will be a second source driving the same controller.
@@ -90,7 +94,6 @@ Conventions already in place:
 - Every object owns its geometry and material in `useMemo` and disposes them on unmount.
 - Layout of particles and beams uses the seeded PRNG in `utils/random.ts`; do not use
   `Math.random` in scene code, the scene must be identical on every load.
-- Tone mapping is `NeutralToneMapping`: ACES desaturated the dark blues into grey.
 - ESLint's `react/no-unknown-property` is off for `src/rendering` and `src/scene-graph`
   because React Three Fiber elements take Three.js props. Keep it on elsewhere.
 - The design tokens exist twice on purpose: CSS `@theme` in `app/globals.css` and
@@ -111,16 +114,17 @@ Conventions already in place:
 Reading rule: where two phases or the two documents conflict, the decision log and the later phase win over earlier phase text. Known conflicts:
 
 - Phase 1 still lists the original card set (Instagram, Stocks, Sports, System). Spec v1 §2 and Phase 3 drop Instagram and Sports, replace Stocks with Finance/Patrimoine, and split System into per-service cards (Pterodactyl, Hashira/GMod, Nanos World Demon Slayer, Infra/Réseau, Automatisation). Phase 4's "Stocks" world means Finance/Patrimoine.
-- Phase 1 has released cards "drop with physics" via Rapier. Phase 6 removes that entirely: released cards return to their orbit slot on the orbit spring, and rigid bodies, collision floor, throw/recall regimes and imperative registries are deleted. Phase 6 also turns ambient motion off by default (gated by a 0..1 multiplier) and requires exactly zero carousel and camera drift under zero input.
+- Phase 1 has released cards "drop with physics" via Rapier. Phase 6 removes that entirely: released cards return to their orbit slot on the orbit spring, and rigid bodies, collision floor, throw/recall regimes and imperative registries are deleted. Build the Rapier version as Phase 1 literally describes it, then remove it in Phase 6 as specified — do not skip straight to the orbit spring during Phase 1 just because it's the eventual end state. Phase 6 also turns ambient motion off by default (gated by a 0..1 multiplier) and requires exactly zero carousel and camera drift under zero input.
 - Phase 2 wires voice and the wake word to Gemini. Phase 3's AI card adds a second tier (Claude Agent SDK) and explicitly leaves the Phase 2 pipeline unchanged.
+- Phase 1 uses `NeutralToneMapping` instead of ACES because ACES desaturated the dark blues into grey. Phase 6's cinematic color grade is specified in classic-film terms (18% grey pivot, halation) that assume a filmic response curve underneath. On a Neutral base, build Phase 6's grade as its own explicit full-screen pass — don't assume it composites on top of an existing filmic curve the way the spec's wording implies.
 
-Every phase after the first opens with "Do not rewrite existing architecture. Only extend it." Treat that as binding.
+"Do not rewrite existing architecture. Only extend it." opens Phases 2, 3, 5 and 6 verbatim — treat it as binding for those four. Phase 4 does not contain this line (it opens with "Continue from Phase 3" and nothing else); treat "extend, don't rewrite" as the default posture there too unless a Phase 4 instruction explicitly says otherwise.
 
 ## What NEXUS is
 
 A personal, AI-assisted management panel rendered as a 3D spatial interface. Hand tracking via MediaPipe is the primary input, mouse is a fallback, voice is activated by the wake phrase "Nexus" or a circle gesture. It should feel like an operating system, not a dashboard or a website. The backend runs on its own container (CT) in the user's homelab, exposed through Caddy and protected by Pocket ID.
 
-Planned stack (Phase 1): Next.js 15, React 19, TypeScript, Tailwind CSS v4, React Three Fiber with Three.js and Drei, GSAP, Framer Motion, React Spring, MediaPipe Tasks Vision, Zustand, Lenis, postprocessing (Bloom, DOF, God Rays). Phase 1 requires separated layers: rendering, physics, gesture engine, animations, scene graph, components, utilities, hooks, stores. Design language is Vision Pro / Nothing / Linear / Teenage Engineering / FUI glassmorphism: dark environment, blue and white holographic light, orange reserved for warnings, no stars or galaxies.
+Planned stack (Phase 1): Next.js 15, React 19, TypeScript, Tailwind CSS v4, React Three Fiber with Three.js and Drei, GSAP, Framer Motion, React Spring, Rapier Physics (used for Phase 1's drop-with-physics gesture only — removed again in Phase 6, see known conflicts above), MediaPipe Tasks Vision, Zustand, Lenis, postprocessing (Bloom, DOF, God Rays). Phase 1 requires separated layers: rendering, physics, gesture engine, animations, scene graph, components, utilities, hooks, stores. Design language is Vision Pro / Nothing / Linear / Teenage Engineering / FUI glassmorphism: dark environment, blue and white holographic light, orange reserved for warnings, no stars or galaxies.
 
 ## Architecture in brief
 
@@ -133,9 +137,9 @@ Data sources per card (Phase 3):
 - Pterodactyl, Hashira/GMod, Nanos World Demon Slayer, Automatisation (n8n), Calendar, Weather, Music, News: their real APIs. Hashira and Nanos World are dedicated cards merging live server status with creative content; they are not Projects entries.
 - Projects: one portfolio card per project with description, stack, GitHub links and media.
 
-AI is two-tier (spec v1 §4, Phase 3 AI section): a light LLM (Mistral or Gemini) for chat, voice and everyday questions; Claude Code through the Claude Agent SDK (TypeScript, server-side, Node 20+) for dev tasks, scoped by a strict tool allowlist rather than interactive-session defaults.
+AI is two-tier (spec v1 §4, Phase 3 AI section): Gemini (Flash / Flash-Lite) for chat, voice and everyday questions — chosen over Mistral because Google's free tier is a standing tier meant for sustained light use (no card, no expiry), while Mistral's free "Experiment" tier is explicitly evaluation-only and not meant for real traffic; it also keeps a single AI vendor across this card and Phase 2's voice pipeline. Free-tier inputs/outputs may be used by Google to improve its products — accepted trade-off, revisit if it becomes a concern. Claude Code through the Claude Agent SDK (TypeScript, server-side, Node 20+) for dev tasks, scoped by a strict tool allowlist rather than interactive-session defaults.
 
-Phase 5 remote workstation control: a Tauri agent per machine (Windows/macOS/Linux) connects outbound to NEXUS over an authenticated WebSocket through Caddy, never the reverse, each with its own install-time secret. Bounded actions (open whitelisted app, media transport, volume, screenshot, clipboard, lock screen, DND, open URL, note/reminder) use a fixed enum of verbs with hand-written implementations and need no local confirmation. Launching Claude Code remotely is the unbounded case: it requires an active trust session on the target machine, accepted by a physical click on that machine, scoped per (user, machine), lasting 2 minutes to 2 days, revocable from NEXUS, with the Agent SDK event stream shown live in NEXUS (send message, change mode, interrupt). Every action is logged with timestamp, machine, action, mode and result.
+Phase 5 remote workstation control: a Tauri agent per machine (Windows/macOS/Linux) connects outbound to NEXUS over an authenticated WebSocket through Caddy, never the reverse, each with its own install-time secret. Bounded actions (open whitelisted app, media transport, volume, screenshot, clipboard, hide other windows, quit an app gracefully, lock screen, sleep display, DND, open URL, note/reminder) use a fixed enum of verbs with hand-written implementations and need no local confirmation. Launching Claude Code remotely is the unbounded case: it requires an active trust session on the target machine, accepted by a physical click on that machine, scoped per (user, machine), lasting 2 minutes to 2 days, revocable from NEXUS, with the Agent SDK event stream shown live in NEXUS (send message, change mode, interrupt). Every action is logged with timestamp, machine, action, mode and result.
 
 Phase 6 adds a single master clock for the open-module sequence (targeting, approach, settle), six world-specific film color grades, a named motion vocabulary replacing inline magic numbers, and gold highlighting for the centered card.
 
@@ -144,7 +148,7 @@ Phase 6 adds a single master clock for the open-module sequence (targeting, appr
 - No mocked or placeholder data anywhere. Every card reads real accounts and infrastructure.
 - Finance is strictly read-only. No financial action may ever be triggered by voice, gesture, or any other interaction.
 - ENS (employer) projects are portfolio-only: description, stack and links. Never call employer infrastructure.
-- All API keys and tokens (Anthropic, Gemini, Crypto.com, bank aggregator, Grafana) live server-side in environment variables, never in client code or the repo.
+- All API keys and tokens (Gemini, Anthropic, Crypto.com, bank aggregator, Grafana, Pterodactyl, n8n) live server-side in environment variables, never in client code or the repo.
 - Remote agent: `execFile` only, never `exec`. No shutdown, reboot, file deletion, or process kill. App names resolve against a real scan of installed apps, so an injected command string must resolve to "no such application" rather than execute. Permission errors are translated into OS-specific actionable instructions.
 - Remote Claude Code sessions never run with `bypassPermissions`.
 - Prometheus and other homelab internals are never exposed outside the LAN. Only the NEXUS frontend and public API go through Caddy.
