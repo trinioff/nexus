@@ -20,6 +20,7 @@ uniform float uHighlight;
 uniform float uHighlightAngle;
 uniform float uPulse;
 uniform float uPulseStrength;
+uniform float uSheen;
 varying vec2 vPos;
 
 const float PI = 3.141592653589793;
@@ -39,7 +40,12 @@ void main() {
   float outside = smoothstep(0.0, 0.01, d);
   float edgeFade = 1.0 - smoothstep(0.34, 0.5, d);
   float halo = mix(exp(d * 20.0), exp(-d * 5.0), outside) * edgeFade * 0.32 * uGlow;
-  float rim = (1.0 - outside) * exp(d * 6.0) * 0.14 * uGlow;
+  float rim = (1.0 - outside) * exp(d * 6.0) * 0.08 * uGlow;
+
+  // Frost sheen inside the pane: a soft diagonal wash, brighter toward the top left,
+  // which is what makes the glass read as frosted rather than tinted.
+  float diag = smoothstep(-1.0, 1.0, (vPos.y - vPos.x) / (uHalf.x + uHalf.y));
+  float sheen = (1.0 - outside) * uSheen * (0.35 + 0.65 * diag);
 
   // Hairline border.
   float line = (1.0 - smoothstep(0.006, 0.006 + aa, abs(d))) * uBorder;
@@ -55,8 +61,10 @@ void main() {
 
   vec3 tint = mix(uBase, uAccent, 0.65);
   float energy = halo + rim + line * (0.55 + spot * 1.1) + pulse;
-  vec3 col = tint * energy + vec3(0.9, 0.95, 1.0) * (line * spot * 0.6 + pulse * 0.25);
+  vec3 col = tint * energy + vec3(0.86, 0.92, 1.0) * (sheen + line * spot * 0.6 + pulse * 0.25);
   gl_FragColor = vec4(col, 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 
@@ -70,9 +78,9 @@ export interface CardFrameOptions {
 }
 
 /**
- * Additive plane drawn just in front of the glass: halo, rim, hairline border, running
- * highlight and the selected-state energy pulse, all driven by uniforms the card
- * updates every frame. The plane is larger than the glass so the halo has room.
+ * Additive plane drawn just in front of the glass: halo, rim, frost sheen, hairline
+ * border, running highlight and the selected-state energy pulse, all driven by uniforms
+ * the card updates every frame. The plane is larger than the glass so the halo has room.
  */
 export function createCardFrameMaterial({ half, radius, accent }: CardFrameOptions): ShaderMaterial {
   return new ShaderMaterial({
@@ -89,6 +97,7 @@ export function createCardFrameMaterial({ half, radius, accent }: CardFrameOptio
       uHighlightAngle: { value: 0 },
       uPulse: { value: 0 },
       uPulseStrength: { value: 0 },
+      uSheen: { value: 0 },
     },
     transparent: true,
     depthWrite: false,

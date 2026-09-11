@@ -75,6 +75,8 @@ void main() {
 
   float a = facing * along * streaks * uIntensity;
   gl_FragColor = vec4(uColor * a, a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 

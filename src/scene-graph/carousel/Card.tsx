@@ -16,7 +16,6 @@ import { cardIdle, drag, springs } from "@/animations/motion";
 import type { ModuleDef } from "@/modules/registry";
 import { facingYaw, lerpAngle, orbitPosition, slotAngle } from "@/physics/orbit";
 import { createCardFrameMaterial } from "@/rendering/materials/cardFrame";
-import { palette } from "@/rendering/palette";
 import { createCardLabelTexture } from "@/rendering/textures/cardLabel";
 import { selectCardState, useCarouselStore } from "@/stores/carouselStore";
 import { useSceneStore } from "@/stores/sceneStore";
@@ -41,8 +40,10 @@ const position = new Vector3();
 const local = new Vector3();
 
 /**
- * One module card: a glass slab, an additive frame plane (halo, border, highlight,
- * pulse) and the label face. Its pose is composed every frame from three sources: the
+ * One module card: a transmissive glass slab (the backdrop refracts through it,
+ * blurred by roughness), an additive frame plane (halo, sheen, border, highlight,
+ * pulse) and the label face. The glass does not write depth, so the floor, beams and
+ * motes behind it are drawn over it and read as seen through the pane. Its pose is composed every frame from three sources: the
  * orbit angle spring that tracks the ring, the state springs (lift, scale, tilt, glow),
  * and a seeded idle float. The expanded state blends the whole pose toward the reading
  * position.
@@ -192,13 +193,14 @@ export function Card({ module, index, count, ringAngle, geometries, registerMesh
     const dim = 1 - recede * EXPAND.recedeDim;
     if (glassMaterial.current) {
       glassMaterial.current.opacity = sv.glassOpacity.get() * dim;
-      glassMaterial.current.emissiveIntensity = 0.05 + sv.glow.get() * 0.18;
+      glassMaterial.current.emissiveIntensity = 0.02 + sv.glow.get() * 0.06;
     }
     if (labelMaterial.current) labelMaterial.current.opacity = sv.labelOpacity.get() * dim;
 
     const u = frameMaterial.uniforms;
     u.uGlow.value = sv.glow.get() * (1 - recede);
     u.uBorder.value = sv.border.get() * (1 - recede * 0.6);
+    u.uSheen.value = (0.04 + sv.glow.get() * 0.05) * dim;
     if (state === "focused") {
       u.uHighlight.value = Math.max(sv.highlight.get(), FOCUS.highlight);
       u.uHighlightAngle.value = t * FOCUS.sweepRate;
@@ -229,15 +231,22 @@ export function Card({ module, index, count, ringAngle, geometries, registerMesh
       >
         <meshPhysicalMaterial
           ref={glassMaterial}
-          color={palette.haze}
+          color="#e9f0ff"
           emissive={module.accent}
-          emissiveIntensity={0.05}
-          roughness={0.14}
-          metalness={0.05}
+          emissiveIntensity={0.02}
+          transmission={1}
+          thickness={0.35}
+          ior={1.45}
+          roughness={0.3}
+          metalness={0}
           clearcoat={1}
-          clearcoatRoughness={0.08}
-          envMapIntensity={2}
+          clearcoatRoughness={0.12}
+          specularIntensity={1}
+          envMapIntensity={1.4}
+          attenuationColor="#b9ccff"
+          attenuationDistance={2}
           transparent
+          depthWrite={false}
           opacity={CARD_TARGETS.idle.glassOpacity}
         />
       </mesh>

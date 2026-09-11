@@ -47,6 +47,8 @@ void main() {
 
   vec3 col = uBase + uLine * (lines + centreGlow * 0.07);
   gl_FragColor = vec4(col, falloff);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 

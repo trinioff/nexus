@@ -40,8 +40,8 @@ stating its responsibility; keep those boundaries when adding code.
 - `modules/registry.ts` the flat list of cards (Phase 3 list, in carousel order) with
   label lines, accent colour (violet to cyan across the ring) and placeholder glyph.
 - `rendering/` how a frame is drawn: `NexusCanvas` (renderer settings, Neutral tone
-  mapping), `PostProcessing` (bloom, vignette, skipped on the low tier), `Quality`
-  (drei PerformanceMonitor driving DPR and the quality tier), `palette.ts`, plus the
+  mapping), `PostProcessing` (bloom, vignette; always mounted, cheaper on lower tiers),
+  `Quality` (drei PerformanceMonitor driving DPR and the quality tier), `palette.ts`, plus the
   card building blocks: `geometry/cardSlab.ts` (rounded slab, corner radius independent
   of depth), `materials/cardFrame.ts` (additive halo/border/highlight/pulse shader),
   `textures/cardLabel.ts` (canvas-drawn face using system fonts, no font download).
@@ -105,6 +105,21 @@ Conventions already in place:
 - In additive shaders, gate every term to the region it belongs to. The frame shader
   once had a rim term that evaluated to 1 outside the card and drew a visible rectangle
   behind every card.
+- Quality tiers change cost only (DPR, particle count, bloom buffer size and mip
+  levels), never the look. The EffectComposer is always mounted: every custom
+  ShaderMaterial ends with `#include <tonemapping_fragment>` and
+  `#include <colorspace_fragment>`, but the scene once unmounted the composer on the
+  low tier and the whole background went dark once the performance monitor fell back.
+  If you add a ShaderMaterial, end its fragment shader with those two includes.
+- Card glass is `MeshPhysicalMaterial` with `transmission: 1`: three renders the opaque
+  scene (only the backdrop) once per frame into a shared buffer and the roughness blurs
+  it, which is what gives the frosted look. The glass has `depthWrite: false` so the
+  floor, beams and motes behind a card (all transparent, absent from that buffer) are
+  drawn over the pane and read as seen through it. Keep the glass colour near neutral;
+  the module accent belongs to the frame shader, not the pane.
+- In development, `window.__nexus` exposes the Zustand stores (`useSceneStore`,
+  `useCarouselStore`) so a browser script can force a tier or a card state. It is not
+  set in production builds.
 
 ## The two spec documents and how they relate
 

@@ -59,6 +59,8 @@ void main() {
   vec3 col = mix(uBlue, uWhite, vTint * vTint);
   float a = disc * vAlpha * uOpacity;
   gl_FragColor = vec4(col * a, a);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
 }
 `;
 

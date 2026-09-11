@@ -17,12 +17,12 @@ export interface CardTargets {
 
 /** Rest values each state springs toward. */
 export const CARD_TARGETS: Record<CardState, CardTargets> = {
-  idle: { lift: 0, scale: 1, glow: 0.22, border: 0.35, labelOpacity: 0.8, glassOpacity: 0.5 },
-  focused: { lift: 0.08, scale: 1.02, glow: 0.45, border: 0.6, labelOpacity: 0.95, glassOpacity: 0.55 },
-  hovered: { lift: 0.22, scale: 1.045, glow: 0.7, border: 0.85, labelOpacity: 1, glassOpacity: 0.58 },
-  selected: { lift: 0.34, scale: 1.06, glow: 1, border: 1, labelOpacity: 1, glassOpacity: 0.62 },
-  expanded: { lift: 0, scale: 1, glow: 0.8, border: 1, labelOpacity: 1, glassOpacity: 0.66 },
-  dragging: { lift: -0.12, scale: 0.965, glow: 0.15, border: 0.3, labelOpacity: 0.7, glassOpacity: 0.45 },
+  idle: { lift: 0, scale: 1, glow: 0.22, border: 0.35, labelOpacity: 0.8, glassOpacity: 0.92 },
+  focused: { lift: 0.08, scale: 1.02, glow: 0.45, border: 0.6, labelOpacity: 0.95, glassOpacity: 0.94 },
+  hovered: { lift: 0.22, scale: 1.045, glow: 0.7, border: 0.85, labelOpacity: 1, glassOpacity: 0.96 },
+  selected: { lift: 0.34, scale: 1.06, glow: 1, border: 1, labelOpacity: 1, glassOpacity: 0.98 },
+  expanded: { lift: 0, scale: 1, glow: 0.8, border: 1, labelOpacity: 1, glassOpacity: 1 },
+  dragging: { lift: -0.12, scale: 0.965, glow: 0.15, border: 0.3, labelOpacity: 0.7, glassOpacity: 0.85 },
 };
 
 /** Which spring carries a card from one state to the next. */
