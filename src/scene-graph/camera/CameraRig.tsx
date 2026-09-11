@@ -5,9 +5,13 @@ import { Vector3 } from "three";
 import { drifting } from "@/animations/motion";
 import { useSceneStore } from "@/stores/sceneStore";
 
-/** Resting pose. With `motion` at 0 the camera sits here exactly. */
-export const CAMERA_BASE = new Vector3(0, 0.8, 9);
-export const CAMERA_TARGET = new Vector3(0, 0.4, 0);
+/**
+ * Resting pose. The user sits inside the card ring (radius 4.5 around the origin),
+ * toward its back, looking across the centre at the front arc. With `motion` at 0 the
+ * camera sits here exactly.
+ */
+export const CAMERA_BASE = new Vector3(0, 0.9, 3.2);
+export const CAMERA_TARGET = new Vector3(0, 0.55, -3);
 
 const target = new Vector3();
 

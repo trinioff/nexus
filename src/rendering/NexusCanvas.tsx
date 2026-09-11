@@ -16,7 +16,7 @@ export function NexusCanvas({ children }: { children: ReactNode }) {
   return (
     <Canvas
       dpr={[1, 2]}
-      camera={{ fov: CAMERA_FOV, near: CAMERA_NEAR, far: CAMERA_FAR, position: [0, 0.8, 9] }}
+      camera={{ fov: CAMERA_FOV, near: CAMERA_NEAR, far: CAMERA_FAR, position: [0, 0.9, 3.2] }}
       gl={{
         antialias: true,
         alpha: false,

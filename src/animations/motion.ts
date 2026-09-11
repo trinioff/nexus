@@ -44,3 +44,45 @@ export const breathing = {
   keyLight: { amplitude: 0.08, rate: 0.35 },
   floorPulse: { rate: 0.4 },
 } as const;
+
+/**
+ * Spring presets named by intent. Every card and ring transition picks one of these;
+ * no component defines its own tension/friction numbers.
+ */
+export const springs = {
+  /** Quick response to attention: hover in, press. A touch of overshoot. */
+  acknowledging: { tension: 420, friction: 26 },
+  /** Something coming to you: select, expand. Carries weight and overshoots. */
+  arriving: { mass: 1.2, tension: 190, friction: 21 },
+  /** Returning to rest: no overshoot. */
+  leaving: { tension: 210, friction: 30 },
+  /** The ring settling onto a slot after a drag or a select. */
+  orbit: { mass: 1, tension: 110, friction: 22 },
+  /** Cards lagging behind the hand while the ring is dragged. */
+  following: { mass: 1, tension: 230, friction: 24 },
+  /** Cards tracking the ring when nothing is dragged: stiff, near-invisible. */
+  tracking: { tension: 900, friction: 42 },
+  /** Hover parallax tilt following the pointer. */
+  parallax: { tension: 320, friction: 28 },
+} as const;
+
+/** Independent idle float of each card. Frequencies are ranges the seed picks from. */
+export const cardIdle = {
+  amplitude: 0.05,
+  tilt: 0.02,
+  frequency: [0.35, 0.65],
+  tiltFrequency: [0.25, 0.5],
+} as const;
+
+/** Mouse drag of the ring. */
+export const drag = {
+  /** Pointer travel before a press becomes a drag rather than a tap. */
+  thresholdPx: 6,
+  /** How many slots a drag across the full viewport width moves the ring. */
+  slotsPerViewportWidth: 5,
+  /** Seconds of release velocity projected ahead before snapping to a slot. */
+  flingProjection: 0.2,
+  /** Yaw lean per radian/second of ring velocity, and its cap. */
+  leanPerRadianPerSecond: 0.06,
+  leanMax: 0.14,
+} as const;

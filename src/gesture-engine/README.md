@@ -1,5 +1,6 @@
 # gesture-engine
 
-Reserved for hand tracking (MediaPipe Tasks Vision) and gesture recognition: palm, pinch,
-swipe, open/closed hand, circle. It will publish recognised gestures to a store; the
-scene graph consumes them and never talks to MediaPipe directly. Nothing here yet.
+Turns input into carousel intents. `CarouselController` is the contract every input
+source drives: drag start/move/end, tap, dismiss. `pointer/` is the mouse fallback that
+exists today. Hand tracking (MediaPipe Tasks Vision) will be a second source producing the
+same intents; the scene graph never talks to an input device directly.

@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state of the repository
 
-Phase 1 is partially built: the Next.js scaffold, the layered folder structure and the
-ambient 3D room exist. Cards, hand tracking, gestures, the HUD and any physics do not
-exist yet. The two spec documents under `docs/specs/` remain the source of truth.
+Phase 1 is partially built: the Next.js scaffold, the layered folder structure, the
+ambient 3D room, and the card carousel with mouse interaction and the six card states.
+Hand tracking, gestures, the HUD and any rigid-body physics do not exist yet. The two
+spec documents under `docs/specs/` remain the source of truth.
 
 ## Commands
 
@@ -35,24 +36,54 @@ stating its responsibility; keep those boundaries when adding code.
 - `app/` Next.js App Router shell only: layout, page, global CSS with the design tokens.
 - `components/` React DOM components. `NexusRoot` is the client boundary: WebGL gate,
   reduced-motion preference, then the canvas loaded with `ssr: false`.
+- `modules/registry.ts` the flat list of cards (Phase 3 list, in carousel order) with
+  label lines, accent colour (violet to cyan across the ring) and placeholder glyph.
 - `rendering/` how a frame is drawn: `NexusCanvas` (renderer settings, Neutral tone
   mapping), `PostProcessing` (bloom, vignette, skipped on the low tier), `Quality`
-  (drei PerformanceMonitor driving DPR and the quality tier), `palette.ts`.
+  (drei PerformanceMonitor driving DPR and the quality tier), `palette.ts`, plus the
+  card building blocks: `geometry/cardSlab.ts` (rounded slab, corner radius independent
+  of depth), `materials/cardFrame.ts` (additive halo/border/highlight/pulse shader),
+  `textures/cardLabel.ts` (canvas-drawn face using system fonts, no font download).
 - `scene-graph/` what is in the world. `NexusScene` composes `environment/` (fbm fog
   backdrop on an inverted sphere, grid floor dissolving into fog), `atmosphere/`
-  (seeded particle motes, additive searchlight beams), `lighting/`, `camera/`
-  (`CameraRig`, the floating drift).
-- `animations/motion.ts` the motion vocabulary: every ambient amplitude and rate lives
-  here under intent names (`drifting`, `breathing`). No inline magic numbers in scene code.
+  (seeded particle motes, additive searchlight beams), `lighting/` (light rig and the
+  procedural env map for glass reflections), `camera/` (`CameraRig`, the floating
+  drift) and `carousel/` (`Carousel` owns the ring spring, hit testing and the
+  controller; `Card` composes one card's pose every frame).
+- `physics/orbit.ts` pure ring maths: slot angles, orbit positions, nearest slot, the
+  shortest rotation that brings a card to the front. No rigid bodies, ever.
+- `gesture-engine/` input sources producing carousel intents. `CarouselController` is
+  the contract; `pointer/usePointerCarouselInput.ts` is the mouse and touch source. Hand
+  tracking will be a second source driving the same controller.
+- `animations/motion.ts` the motion vocabulary: ambient amplitudes and rates under
+  intent names (`drifting`, `breathing`), spring presets by intent (`acknowledging`,
+  `arriving`, `leaving`, `orbit`, `following`, `tracking`, `parallax`), idle float and
+  drag tunables. `animations/cardMotion.ts` maps the six card states to spring targets.
+  No inline magic numbers in scene code.
 - `stores/sceneStore.ts` Zustand: `motion` (0..1 ambient multiplier) and `quality`.
+  `stores/carouselStore.ts`: hovered, selected, expanded, focused, dragged ids and
+  `selectCardState`, which resolves a card's single state by priority.
 - `utils/` pure helpers: math, seeded PRNG, shared GLSL noise chunk.
 - `hooks/` browser-API hooks (WebGL support, reduced motion).
-- `physics/`, `gesture-engine/` reserved, README only.
 
 Conventions already in place:
 
-- Frame-loop code reads the store with `useSceneStore.getState()` inside `useFrame`;
-  never subscribe with the hook there, it would re-render the scene graph every change.
+- Frame-loop code reads stores with `getState()` inside `useFrame`; never subscribe
+  with the hook there, it would re-render the scene graph every change. Cards subscribe
+  with hooks only to their own derived state, which changes rarely.
+- Springs are React Spring values sampled with `.get()` inside `useFrame` and composed
+  into the object's pose by hand; no `animated.*` wrappers. A card's pose is
+  `orbit(angle) + facing * lift + idle float`, blended toward the reading position by
+  the `expand` spring, so state changes never fight the ring rotation.
+- Card state priority (in `selectCardState`): dragging, expanded, selected, hovered,
+  focused, idle. Focused is derived every frame from the ring angle (the slot nearest
+  the front), not set by input.
+- The ring drag sets the ring spring immediately; the pressed card tracks it
+  immediately while the other cards follow on the `following` spring, which is what
+  makes them lag the hand. Release projects the velocity ahead and snaps to a slot.
+- A tap on a card selects it (ring rotates it to the front), a second tap expands it,
+  Escape or a tap on empty space collapses then deselects. Starting a drag clears
+  selection and expansion.
 - Camera drift is `base + motion * f(t)` with no easing, so `motion = 0` means the camera
   sits exactly on its base pose (Phase 6 requires exactly zero drift under zero input).
   Beam sweep accumulates `delta * rate * motion` so it holds still without snapping.
@@ -64,6 +95,13 @@ Conventions already in place:
   because React Three Fiber elements take Three.js props. Keep it on elsewhere.
 - The design tokens exist twice on purpose: CSS `@theme` in `app/globals.css` and
   `rendering/palette.ts` for Three.js. Change both together.
+- Card faces are canvas textures drawn with system fonts; do not add a web font or a
+  CDN-loaded SDF font. The app must render offline in the homelab.
+- The glass reflections come from a drei `Environment` built from Lightformers and
+  rendered once. Do not swap in an HDR preset: presets download from the internet.
+- In additive shaders, gate every term to the region it belongs to. The frame shader
+  once had a rim term that evaluated to 1 outside the card and drew a visible rectangle
+  behind every card.
 
 ## The two spec documents and how they relate
 
