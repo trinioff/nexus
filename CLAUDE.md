@@ -4,7 +4,66 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current state of the repository
 
-NEXUS has not been coded yet. The repository contains only two specification documents under `docs/specs/`. There is no package manifest, no build, lint, test, or CI tooling. Do not assume any command exists. When the project is scaffolded, record the real commands here (install, dev server, build, lint, typecheck, and how to run a single test).
+Phase 1 is partially built: the Next.js scaffold, the layered folder structure and the
+ambient 3D room exist. Cards, hand tracking, gestures, the HUD and any physics do not
+exist yet. The two spec documents under `docs/specs/` remain the source of truth.
+
+## Commands
+
+```
+npm install          # Node 22 is what the project was scaffolded with; Node 20+ required
+npm run dev          # Next dev server on http://localhost:3000
+npm run build        # production build; also runs lint and type checks
+npm run start        # serve the production build
+npm run lint         # ESLint (next/core-web-vitals + next/typescript)
+npm run typecheck    # tsc --noEmit
+```
+
+There is no test runner yet. When one is added, record here how to run a single test.
+
+To check the scene visually without a GPU, build or run dev, then drive the pre-installed
+headless Chromium with Playwright using the flags `--use-angle=swiftshader
+--enable-unsafe-swiftshader --ignore-gpu-blocklist` and take a screenshot; WebGL 2 works
+under SwiftShader. Expect one console warning, "THREE.Clock: This module has been
+deprecated", which comes from React Three Fiber's internals, not from project code.
+
+## Source layout (Phase 1 layers)
+
+`src/` is split into the layers Phase 1 asks for. Each layer folder has a short README
+stating its responsibility; keep those boundaries when adding code.
+
+- `app/` Next.js App Router shell only: layout, page, global CSS with the design tokens.
+- `components/` React DOM components. `NexusRoot` is the client boundary: WebGL gate,
+  reduced-motion preference, then the canvas loaded with `ssr: false`.
+- `rendering/` how a frame is drawn: `NexusCanvas` (renderer settings, Neutral tone
+  mapping), `PostProcessing` (bloom, vignette, skipped on the low tier), `Quality`
+  (drei PerformanceMonitor driving DPR and the quality tier), `palette.ts`.
+- `scene-graph/` what is in the world. `NexusScene` composes `environment/` (fbm fog
+  backdrop on an inverted sphere, grid floor dissolving into fog), `atmosphere/`
+  (seeded particle motes, additive searchlight beams), `lighting/`, `camera/`
+  (`CameraRig`, the floating drift).
+- `animations/motion.ts` the motion vocabulary: every ambient amplitude and rate lives
+  here under intent names (`drifting`, `breathing`). No inline magic numbers in scene code.
+- `stores/sceneStore.ts` Zustand: `motion` (0..1 ambient multiplier) and `quality`.
+- `utils/` pure helpers: math, seeded PRNG, shared GLSL noise chunk.
+- `hooks/` browser-API hooks (WebGL support, reduced motion).
+- `physics/`, `gesture-engine/` reserved, README only.
+
+Conventions already in place:
+
+- Frame-loop code reads the store with `useSceneStore.getState()` inside `useFrame`;
+  never subscribe with the hook there, it would re-render the scene graph every change.
+- Camera drift is `base + motion * f(t)` with no easing, so `motion = 0` means the camera
+  sits exactly on its base pose (Phase 6 requires exactly zero drift under zero input).
+  Beam sweep accumulates `delta * rate * motion` so it holds still without snapping.
+- Every object owns its geometry and material in `useMemo` and disposes them on unmount.
+- Layout of particles and beams uses the seeded PRNG in `utils/random.ts`; do not use
+  `Math.random` in scene code, the scene must be identical on every load.
+- Tone mapping is `NeutralToneMapping`: ACES desaturated the dark blues into grey.
+- ESLint's `react/no-unknown-property` is off for `src/rendering` and `src/scene-graph`
+  because React Three Fiber elements take Three.js props. Keep it on elsewhere.
+- The design tokens exist twice on purpose: CSS `@theme` in `app/globals.css` and
+  `rendering/palette.ts` for Three.js. Change both together.
 
 ## The two spec documents and how they relate
 
